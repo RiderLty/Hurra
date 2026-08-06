@@ -306,7 +306,9 @@ void led_blinking_task(void)
     // Update timing and toggle LED
     g_led_controller.last_blink_time = current_time;
     g_led_controller.led_state = !g_led_controller.led_state;
+    #if PIN_LED != 255
     gpio_put(PIN_LED, g_led_controller.led_state);
+    #endif
 }
 
 void led_set_blink_interval(uint32_t interval_ms)
@@ -341,10 +343,12 @@ void neopixel_init(void)
         return;
     }
 
-    // Initialize LED pin
+    // Initialize LED pin (255 = not available)
+    #if PIN_LED != 255
     gpio_init(PIN_LED);
     gpio_set_dir(PIN_LED, GPIO_OUT);
     gpio_put(PIN_LED, 0);
+    #endif
 
     // Initialize neopixel power pin but keep it OFF during early boot
     // NEOPIXEL_POWER = 255 means no separate power pin (always powered)

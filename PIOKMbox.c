@@ -207,6 +207,7 @@ static bool initialize_usb_device(void) {
 //--------------------------------------------------------------------+
 
 static void process_button_input(system_state_t* state, uint32_t current_time) {
+    #if PIN_BUTTON != 255
     // Performance optimization: single GPIO read per call
     const bool button_currently_pressed = !gpio_get(PIN_BUTTON); // Button is active low
 
@@ -258,6 +259,7 @@ static void process_button_input(system_state_t* state, uint32_t current_time) {
     }
 
     state->button_pressed_last = button_currently_pressed;
+    #endif // PIN_BUTTON != 255
 }
 
 //--------------------------------------------------------------------+
@@ -365,7 +367,9 @@ static void main_application_loop(void) {
         }
         
         if (task_flags & BUTTON_FLAG) {
+            #if PIN_BUTTON != 255
             process_button_input(state, current_time);
+            #endif
             state->last_button_time = current_time;
         }
         
@@ -392,15 +396,17 @@ static void main_application_loop(void) {
 int main(void) {
     
     // Initialize basic GPIO (clock will be set by initialize_system)
-    #ifdef PIN_USB_5V
+    #if PIN_USB_5V != 255
     gpio_init(PIN_USB_5V);
     gpio_set_dir(PIN_USB_5V, GPIO_OUT);
     gpio_put(PIN_USB_5V, 0);  // Keep USB power OFF initially
     #endif
     
+    #if PIN_LED != 255
     gpio_init(PIN_LED);
     gpio_set_dir(PIN_LED, GPIO_OUT);
     gpio_put(PIN_LED, 1);  // Turn on LED
+    #endif
     
     printf("=== PIOKMBox Starting ===\n");
     

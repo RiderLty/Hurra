@@ -6,8 +6,54 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PICO_SDK_PATH="${PICO_SDK_PATH:-$HOME/.pico-sdk/sdk/2.2.0-fresh}"
-PICOTOOL="${PICOTOOL:-$HOME/.pico-sdk/picotool/2.1.1/picotool/picotool}"
+# --- PICO_SDK_PATH ---
+if [ -z "$PICO_SDK_PATH" ]; then
+    # Auto-detect from common locations
+    for candidate in \
+        "$HOME/projects/pico-sdk" \
+        "$HOME/pico-sdk" \
+        "$HOME/.pico-sdk/sdk/2.2.0-fresh" \
+        /usr/share/pico-sdk \
+        /opt/pico-sdk; do
+        if [ -f "$candidate/pico_sdk_init.cmake" ]; then
+            PICO_SDK_PATH="$candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$PICO_SDK_PATH" ] || [ ! -f "$PICO_SDK_PATH/pico_sdk_init.cmake" ]; then
+    echo -e "\033[0;31mError: PICO_SDK_PATH is not set or invalid.\033[0m"
+    echo "Set it to your pico-sdk directory, e.g.:"
+    echo "  export PICO_SDK_PATH=/path/to/pico-sdk"
+    echo "  PICO_SDK_PATH=/path/to/pico-sdk ./build.sh all"
+    exit 1
+fi
+
+# --- PICOTOOL ---
+if [ -z "$PICOTOOL" ]; then
+    # Auto-detect: try PATH first, then common locations
+    if command -v picotool &>/dev/null; then
+        PICOTOOL="$(command -v picotool)"
+    else
+        for candidate in \
+            "$HOME/.pico-sdk/picotool/2.1.1/picotool/picotool" \
+            "$HOME/projects/picotool/build/picotool" \
+            /usr/local/bin/picotool; do
+            if [ -x "$candidate" ]; then
+                PICOTOOL="$candidate"
+                break
+            fi
+        done
+    fi
+fi
+# PICOTOOL is optional (only needed for flashing), so just warn if missing
+if [ -z "$PICOTOOL" ] || [ ! -x "$PICOTOOL" ]; then
+    echo -e "\033[1;33mWarning: picotool not found. Flashing via picotool will be unavailable.\033[0m"
+    echo "Install it from https://github.com/raspberrypi/picotool"
+    echo "Or set PICOTOOL=/path/to/picotool"
+    echo ""
+    PICOTOOL=""  # clear it so -x check later fails gracefully
+fi
 NJOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 
 # Colors for output
@@ -24,6 +70,7 @@ usage() {
     echo "Targets:"
     echo "  metro     Build main KMBox for Adafruit Metro RP2350 (primary)"
     echo "  pico2     Build main KMBox for RP2350 (Pico 2)"
+    echo "  waveshare Build main KMBox for Waveshare RP2350-USB-C"
     echo "  bridge    Build UART bridge for Metro RP2350 + ILI9341 (default)"
     echo "  bridge-feather  Build UART bridge for Feather RP2350 + ST7735"
     echo "  both      Build main KMBox for Metro RP2350 and Pico 2"
@@ -60,6 +107,10 @@ build_kmbox() {
             ;;
         metro)
             board="adafruit_metro_rp2350"
+            platform="rp2350-arm-s"
+            ;;
+        waveshare)
+            board="waveshare_rp2350_usb_c"
             platform="rp2350-arm-s"
             ;;
         *)
@@ -215,7 +266,7 @@ FLASH=0
 
 for arg in "$@"; do
     case $arg in
-        pico2|metro|bridge|bridge-metro|bridge-feather|both|all|dual-metro|flash-metros|white-label|white-label-verify)
+        pico2|metro|bridge|bridge-metro|bridge-feather|both|all|dual-metro|flash-metros|waveshare|white-label|white-label-verify)
             TARGET="$arg"
             ;;
         clean)
@@ -263,6 +314,13 @@ case $TARGET in
         if [ "$FLASH" = "1" ]; then
             wait_for_device "KMBox (Metro RP2350)"
             flash_firmware "$SCRIPT_DIR/build-metro/PIOKMbox.uf2" "KMBox (Metro RP2350)"
+        fi
+        ;;
+    waveshare)
+        build_kmbox waveshare
+        if [ "$FLASH" = "1" ]; then
+            wait_for_device "KMBox (Waveshare RP2350-USB-C)"
+            flash_firmware "$SCRIPT_DIR/build-waveshare/PIOKMbox.uf2" "KMBox (Waveshare RP2350-USB-C)"
         fi
         ;;
     bridge)
@@ -451,7 +509,8 @@ echo -e "${GREEN}Done!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Firmware locations:"
-[ -f "$SCRIPT_DIR/build-pico2/PIOKMbox.uf2" ] && echo "  KMBox (Pico 2):            build-pico2/PIOKMbox.uf2"
-[ -f "$SCRIPT_DIR/build-metro/PIOKMbox.uf2" ] && echo "  KMBox (Metro RP2350):      build-metro/PIOKMbox.uf2"
+[ -f "$SCRIPT_DIR/build-pico2/PIOKMbox.uf2" ] && echo "  KMBox (Pico 2):                build-pico2/PIOKMbox.uf2"
+[ -f "$SCRIPT_DIR/build-metro/PIOKMbox.uf2" ] && echo "  KMBox (Metro RP2350):          build-metro/PIOKMbox.uf2"
+[ -f "$SCRIPT_DIR/build-waveshare/PIOKMbox.uf2" ] && echo "  KMBox (Waveshare RP2350-USB-C): build-waveshare/PIOKMbox.uf2"
 [ -f "$SCRIPT_DIR/bridge/build/kmbox_bridge.uf2" ] && echo "  Bridge (Feather):          bridge/build/kmbox_bridge.uf2"
 [ -f "$SCRIPT_DIR/bridge/build-metro/kmbox_bridge.uf2" ] && echo "  Bridge (Metro RP2350):     bridge/build-metro/kmbox_bridge.uf2"
