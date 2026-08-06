@@ -18,13 +18,20 @@ endif()
 set(sdkVersion 2.2.0)
 set(toolchainVersion 14_2_Rel1)
 set(picotoolVersion 2.2.0)
-set(PICO_SDK_PATH $ENV{HOME}/.pico-sdk/sdk/2.2.0-fresh)
+# Use PICO_SDK_PATH from cmake cache / -D / environment; only set fallback if not provided
+if(NOT PICO_SDK_PATH)
+    if(DEFINED ENV{PICO_SDK_PATH})
+        set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
+    else()
+        set(PICO_SDK_PATH $ENV{HOME}/.pico-sdk/sdk/2.2.0-fresh)
+    endif()
+endif()
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-# Board selection: metro (Adafruit Metro RP2350) or pico2 (RP2350 only)
+# Board selection: metro (Adafruit Metro RP2350), waveshare (Waveshare RP2350-USB-C), or pico2 (RP2350 only)
 set(PICO_BOARD adafruit_metro_rp2350 CACHE STRING "Board type")
 
 # Tell the SDK where to find custom board headers (e.g. adafruit_metro_rp2350.h)
@@ -38,7 +45,17 @@ if(PICO_BOARD STREQUAL "adafruit_metro_rp2350")
     set(LED_PIN 23 CACHE STRING "Status LED pin")
     set(NEOPIXEL_PIN 25 CACHE STRING "NeoPixel data pin")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
+    set(PIN_BUTTON 7 CACHE STRING "Button GPIO pin")
     message(STATUS "Configuring for Adafruit Metro RP2350 - USB Host on GPIO32/33")
+elseif(PICO_BOARD STREQUAL "waveshare_rp2350_usb_c")
+    set(USB_HOST_DP_PIN 12 CACHE STRING "USB Host D+ pin")
+    set(USB_HOST_DM_PIN 13 CACHE STRING "USB Host D- pin")
+    set(USB_HOST_5V_PIN 255 CACHE STRING "USB Host 5V power pin (255=not used, Type-C PD)")
+    set(LED_PIN 255 CACHE STRING "Status LED pin (255=not used, use WS2812)")
+    set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
+    set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
+    set(PIN_BUTTON 255 CACHE STRING "Button GPIO pin (255=not used)")
+    message(STATUS "Configuring for Waveshare RP2350-USB-C - USB Host on GPIO12/13")
 else()
     # Default: Pico/Pico2 with common GPIO16/17 for PIO USB
     set(USB_HOST_DP_PIN 16 CACHE STRING "USB Host D+ pin")
@@ -47,6 +64,7 @@ else()
     set(LED_PIN 25 CACHE STRING "Status LED pin")
     set(NEOPIXEL_PIN 21 CACHE STRING "NeoPixel data pin")
     set(NEOPIXEL_POWER_PIN 20 CACHE STRING "NeoPixel power pin")
+    set(PIN_BUTTON 7 CACHE STRING "Button GPIO pin")
     message(STATUS "Configuring for ${PICO_BOARD} - USB Host on GPIO16/17")
 endif()
 
@@ -153,6 +171,7 @@ target_compile_definitions(PIOKMbox PRIVATE
         PIN_LED=${LED_PIN}
         PIN_NEOPIXEL=${NEOPIXEL_PIN}
         NEOPIXEL_POWER=${NEOPIXEL_POWER_PIN}
+        PIN_BUTTON=${PIN_BUTTON}
         ENABLE_XBOX_PASSTHROUGH=1
 )
 

@@ -1403,10 +1403,11 @@ static void build_runtime_hid_report_with_mouse(const uint8_t *mouse_desc, size_
 
 bool usb_hid_init(void)
 {
+    #if PIN_BUTTON != 255
     gpio_init(PIN_BUTTON);
-
     gpio_set_dir(PIN_BUTTON, GPIO_IN);
     gpio_pull_up(PIN_BUTTON);
+    #endif
 
     // Initialize connection state
     memset(&connection_state, 0, sizeof(connection_state));
@@ -1443,7 +1444,7 @@ bool usb_hid_init(void)
 
 bool usb_host_enable_power(void)
 {
-    #ifdef PIN_USB_5V
+    #if PIN_USB_5V != 255
     gpio_put(PIN_USB_5V, 1); // Enable USB power
     #endif
     sleep_ms(100);           // Allow power to stabilize
@@ -1920,9 +1921,11 @@ void hid_device_task(void)
     // physical mouse moves (which prevents suspend in the first place).
     if (tud_suspended())
     {
-        bool has_data = !gpio_get(PIN_BUTTON) ||
-                        smooth_has_pending() ||
+        bool has_data = smooth_has_pending() ||
                         kmbox_has_pending_movement();
+        #if PIN_BUTTON != 255
+        has_data = has_data || !gpio_get(PIN_BUTTON);
+        #endif
         if (has_data) {
             tud_remote_wakeup();
         }
@@ -2156,6 +2159,8 @@ void send_hid_report(uint8_t report_id)
 
     case REPORT_ID_MOUSE:
         // Only send button-based mouse movement if no mouse is connected
+        // and a button GPIO is available (PIN_BUTTON != 255)
+        #if PIN_BUTTON != 255
         if (!connection_state.mouse_connected)
         {
             // Check device readiness before each report
@@ -2182,6 +2187,7 @@ void send_hid_report(uint8_t report_id)
                 prev_button_state = current_button_state;
             }
         }
+        #endif
         break;
 
     case REPORT_ID_CONSUMER_CONTROL:
