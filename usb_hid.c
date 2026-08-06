@@ -554,32 +554,40 @@ static const uint8_t desc_hid_mouse_16bit[] = {
 static const uint8_t desc_hid_consumer[] = {
     TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(REPORT_ID_CONSUMER_CONTROL))};
 
-// KMBox USB HID Control Interface — dedicated vendor output+feature reports
+// KMBox USB HID Control Interface — dedicated vendor output+feature report
 // for KMBox commands over USB HID (no UART/bridge required).
-// Report ID 0xF0: Output (PC→Device) — KMBox text or binary commands
-// Report ID 0xF1: Feature (bidirectional) — status query / response
+//
+// Output report (64 bytes, no report ID):
+//   Bytes 0-1:  Magic prefix 0xF0 0xAA — identifies KMBox command
+//   Bytes 2-63: KM command payload (text or 8-byte binary packet)
+//
+// Feature report (64 bytes): status query / response
 static const uint8_t desc_hid_kmbox_control[] = {
-    HID_USAGE_PAGE   ( 0xFF00                        ),  // Vendor-defined
-    HID_USAGE        ( 0x01                          ),  // Vendor usage 1
-    HID_COLLECTION   ( HID_COLLECTION_APPLICATION    ),
-      // Output report: PC sends KM commands
-      HID_REPORT_ID  ( KMBOX_REPORT_ID_CMD           ),
-      HID_USAGE      ( 0x02                          ),
-      HID_LOGICAL_MIN( 0                             ),
-      HID_LOGICAL_MAX( 255                           ),
-      HID_REPORT_COUNT( KMBOX_HID_REPORT_LEN         ),
-      HID_REPORT_SIZE( 8                             ),
-      HID_OUTPUT     ( HID_DATA | HID_VARIABLE | HID_ABSOLUTE ),
-      // Feature report: bidirectional status queries
-      HID_REPORT_ID  ( KMBOX_REPORT_ID_STATUS        ),
-      HID_USAGE      ( 0x03                          ),
-      HID_LOGICAL_MIN( 0                             ),
-      HID_LOGICAL_MAX( 255                           ),
-      HID_REPORT_COUNT( KMBOX_HID_REPORT_LEN         ),
-      HID_REPORT_SIZE( 8                             ),
-      HID_FEATURE    ( HID_DATA | HID_VARIABLE | HID_ABSOLUTE ),
-    HID_COLLECTION_END
+    // Vendor-defined usage page (0xFF00, 2 bytes) + usage (0x01)
+    0x06, 0x00, 0xFF,  // Usage Page (Vendor 0xFF00)
+    0x09, 0x01,        // Usage (0x01)
+    0xA1, 0x01,        // Collection (Application)
+    // Output report: PC → Device (KM commands, 64 bytes, no report ID)
+    0x09, 0x02,        //   Usage (0x02)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+    0x75, 0x08,        //   Report Size (8)
+    0x96, 0x40, 0x00,  //   Report Count (64)
+    0x91, 0x02,        //   Output (Data, Variable, Absolute)
+    // Feature report: bidirectional status query (64 bytes)
+    0x09, 0x03,        //   Usage (0x03)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+    0x75, 0x08,        //   Report Size (8)
+    0x96, 0x40, 0x00,  //   Report Count (64)
+    0xB1, 0x02,        //   Feature (Data, Variable, Absolute)
+    0xC0,              // End Collection
 };
+
+// KMBox USB command magic prefix
+#define KMBOX_USB_PREFIX_0  0xF0
+#define KMBOX_USB_PREFIX_1  0xAA
+#define KMBOX_USB_PREFIX_LEN 2
 
 // Static fallback concatenated descriptor (used by config descriptor sizeof)
 const uint8_t desc_hid_report[] = {
@@ -2843,9 +2851,9 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 {
     if (instance >= MAX_DEVICE_HID_INTERFACES || !buffer || reqlen == 0) return 0;
 
-    // KMBox USB Control: status query feature report (report ID 0xF1)
+    // KMBox USB Control: status query via feature report
     // Return a short status string with humanization mode and queue info
-    if (instance == kmbox_control_instance() && report_id == KMBOX_REPORT_ID_STATUS) {
+    if (instance == kmbox_control_instance() && report_type == HID_REPORT_TYPE_FEATURE) {
         humanization_mode_t hm = smooth_get_humanization_mode();
         uint8_t queue_count = 0;
         smooth_get_stats(NULL, NULL, NULL, &queue_count);
@@ -2930,14 +2938,15 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     //------------------------------------------------------------------+
     // KMBox USB Control Interface: intercept KM commands before forwarding
     //------------------------------------------------------------------+
-    if (instance == kmbox_control_instance() && report_id == KMBOX_REPORT_ID_CMD) {
-        if (buffer != NULL && bufsize > 0) {
-            kmbox_process_command_buffer(buffer, bufsize);
+    // Output report to KMBox interface: check for 0xF0 0xAA magic prefix.
+    // Prefix found → process payload as KM command.
+    // No prefix → ignored (not a valid KMBox command).
+    if (instance == kmbox_control_instance()) {
+        if (buffer != NULL && bufsize >= KMBOX_USB_PREFIX_LEN &&
+            buffer[0] == KMBOX_USB_PREFIX_0 && buffer[1] == KMBOX_USB_PREFIX_1) {
+            kmbox_process_command_buffer(buffer + KMBOX_USB_PREFIX_LEN,
+                                         bufsize - KMBOX_USB_PREFIX_LEN);
         }
-        return;
-    }
-    if (instance == kmbox_control_instance() && report_id == KMBOX_REPORT_ID_STATUS) {
-        // Status query via feature report — handled in get_report_cb
         return;
     }
 

@@ -206,8 +206,8 @@ static bool initialize_usb_device(void) {
 // Button Handling Functions
 //--------------------------------------------------------------------+
 
+#if PIN_BUTTON != 255
 static void process_button_input(system_state_t* state, uint32_t current_time) {
-    #if PIN_BUTTON != 255
     // Performance optimization: single GPIO read per call
     const bool button_currently_pressed = !gpio_get(PIN_BUTTON); // Button is active low
 
@@ -259,8 +259,8 @@ static void process_button_input(system_state_t* state, uint32_t current_time) {
     }
 
     state->button_pressed_last = button_currently_pressed;
-    #endif // PIN_BUTTON != 255
 }
+#endif // PIN_BUTTON != 255
 
 //--------------------------------------------------------------------+
 // Utility Functions

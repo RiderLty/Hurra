@@ -231,9 +231,10 @@
 
 // KMBox USB HID Control Interface (5th HID interface, always present)
 #define KMBOX_HID_INTERFACE_INDEX       4       // 0-indexed, after up to 4 mirrored interfaces
-#define KMBOX_REPORT_ID_CMD             0xF0    // Output report: PC sends KM commands to device
-#define KMBOX_REPORT_ID_STATUS          0xF1    // Feature report: PC queries status (bidirectional)
-#define KMBOX_HID_REPORT_LEN            64      // Max command/reply length
+#define KMBOX_HID_REPORT_LEN            64      // Output/feature report size in bytes
+#define KMBOX_USB_PREFIX_0              0xF0    // Magic byte 0: KMBox command marker
+#define KMBOX_USB_PREFIX_1              0xAA    // Magic byte 1: KMBox command marker
+#define KMBOX_USB_PREFIX_LEN            2       // Magic prefix length
 #define CONFIG_TOTAL_LEN                (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
 #define EPNUM_HID                       HID_ENDPOINT_ADDRESS
 
