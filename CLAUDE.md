@@ -39,15 +39,38 @@ When a physical device is connected, the firmware:
 2. On VID/PID change, forces USB re-enumeration so the PC sees the new identity
 3. Mirrors all HID report descriptors so the PC sees the same interface layout as the original device
 
-`tusb_config.h` configures 4 HID interfaces on both device and host sides to handle gaming mice with composite descriptors. The enumeration buffer is sized at 1024 bytes for large gaming device descriptors.
+`tusb_config.h` configures 5 HID interfaces (4 mirrored + 1 KMBox control) on the device side and 4 on the host side. The enumeration buffer is sized at 1024 bytes for large gaming device descriptors.
 
 ### Serial Command Injection (KMBox Protocol)
 
-Commands arrive via UART from a second RP2350 board (the Bridge) or directly from a PC. The parser (`kmbox_serial_handler.c`) supports:
+Commands can arrive via three paths:
+1. **UART** from a second RP2350 board (the Bridge) or USB-UART adapter
+2. **USB HID control interface** — a dedicated vendor output report (Report ID 0xF0) on the 5th HID interface. This allows sending KM commands directly over the same USB cable as HID passthrough, with no UART or bridge required. Device control commands (DPI, RGB, etc.) are still forwarded transparently to the physical mouse via non-KMBox report IDs.
+3. **`kmbox_process_command_buffer()`** processes both text and 8-byte binary packets received via either path
+
+The parser (`kmbox_serial_handler.c`) supports:
 - **Text commands** (`km.move(x,y)`, `km.click(n)`, `km.left(1)`, etc.)
 - **8-byte binary protocol** (< 50 µs latency, 1000+ commands/sec)
 - **Monitor mode** for real-time button state queries
 - Compatible with KMBox B+, Ferrum, and Macku tool protocols
+
+#### USB HID Control Interface (KMBox on USB)
+
+The 5th HID interface (always present, instance index = `kmbox_control_instance()`) provides:
+- **Output Report 0xF0**: PC sends KM commands via `hid_write()` / SET_REPORT
+- **Feature Report 0xF1**: PC queries status (humanization mode, queue depth)
+- All non-KMBox SET_REPORT traffic on mirrored interfaces is forwarded to the physical device transparently (DPI, RGB, macros, etc.)
+
+PC-side usage with hidapi:
+```python
+import hid
+dev = hid.device()
+dev.open(0xXXXX, 0xXXXX)  # VID/PID of the proxied device
+# Send a KM text command
+dev.write(b'\xf0' + b'km.move(100,50)\x00' + b'\x00'*44)  # 64-byte report
+# Send an 8-byte fast binary command
+dev.write(b'\xf0' + fast_move_packet + b'\x00'*55)  # padded to 64 bytes
+```
 
 ### Movement Humanization
 

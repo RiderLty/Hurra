@@ -225,9 +225,15 @@
 #define USB_STACK_ERROR_THRESHOLD       50      // Number of consecutive errors before reset
 
 // USB descriptor configuration
-#define MAX_DEVICE_HID_INTERFACES       4       // Max HID interfaces to mirror (matches CFG_TUD_HID)
+#define MAX_DEVICE_HID_INTERFACES       4       // Max HID interfaces to mirror (matches CFG_TUD_HID - 1)
 #define MIRROR_ITF_DESC_MAX             512     // Max HID report descriptor per non-mouse interface
-#define DESC_CONFIG_RUNTIME_MAX         256     // Max runtime config descriptor (9 + 4*32 = 137 typical)
+#define DESC_CONFIG_RUNTIME_MAX         320     // Max runtime config descriptor (9 + 5*48 = 249 typical)
+
+// KMBox USB HID Control Interface (5th HID interface, always present)
+#define KMBOX_HID_INTERFACE_INDEX       4       // 0-indexed, after up to 4 mirrored interfaces
+#define KMBOX_REPORT_ID_CMD             0xF0    // Output report: PC sends KM commands to device
+#define KMBOX_REPORT_ID_STATUS          0xF1    // Feature report: PC queries status (bidirectional)
+#define KMBOX_HID_REPORT_LEN            64      // Max command/reply length
 #define CONFIG_TOTAL_LEN                (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
 #define EPNUM_HID                       HID_ENDPOINT_ADDRESS
 

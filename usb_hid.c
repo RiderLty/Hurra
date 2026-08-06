@@ -215,6 +215,12 @@ static uint8_t mounted_hid_itf_count = 0;    // Mounted so far
 // instance.  Defaults to 0 for single-interface mode.
 static uint8_t mouse_device_instance = 0;
 
+// Return the TinyUSB HID instance index for the KMBox control interface.
+// Always the last interface in the config descriptor (after mirrored/default HID).
+static inline uint8_t kmbox_control_instance(void) {
+    return (mirrored_itf_count > 0) ? mirrored_itf_count : 1;
+}
+
 // Vendor report passthrough queue (Core1 producer → Core0 consumer).
 // When the host mouse sends vendor reports (e.g. Logitech HID++, Razer),
 // Core1 queues them here and Core0 drains them via tud_hid_report().
@@ -547,6 +553,33 @@ static const uint8_t desc_hid_mouse_16bit[] = {
 
 static const uint8_t desc_hid_consumer[] = {
     TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(REPORT_ID_CONSUMER_CONTROL))};
+
+// KMBox USB HID Control Interface — dedicated vendor output+feature reports
+// for KMBox commands over USB HID (no UART/bridge required).
+// Report ID 0xF0: Output (PC→Device) — KMBox text or binary commands
+// Report ID 0xF1: Feature (bidirectional) — status query / response
+static const uint8_t desc_hid_kmbox_control[] = {
+    HID_USAGE_PAGE   ( 0xFF00                        ),  // Vendor-defined
+    HID_USAGE        ( 0x01                          ),  // Vendor usage 1
+    HID_COLLECTION   ( HID_COLLECTION_APPLICATION    ),
+      // Output report: PC sends KM commands
+      HID_REPORT_ID  ( KMBOX_REPORT_ID_CMD           ),
+      HID_USAGE      ( 0x02                          ),
+      HID_LOGICAL_MIN( 0                             ),
+      HID_LOGICAL_MAX( 255                           ),
+      HID_REPORT_COUNT( KMBOX_HID_REPORT_LEN         ),
+      HID_REPORT_SIZE( 8                             ),
+      HID_OUTPUT     ( HID_DATA | HID_VARIABLE | HID_ABSOLUTE ),
+      // Feature report: bidirectional status queries
+      HID_REPORT_ID  ( KMBOX_REPORT_ID_STATUS        ),
+      HID_USAGE      ( 0x03                          ),
+      HID_LOGICAL_MIN( 0                             ),
+      HID_LOGICAL_MAX( 255                           ),
+      HID_REPORT_COUNT( KMBOX_HID_REPORT_LEN         ),
+      HID_REPORT_SIZE( 8                             ),
+      HID_FEATURE    ( HID_DATA | HID_VARIABLE | HID_ABSOLUTE ),
+    HID_COLLECTION_END
+};
 
 // Static fallback concatenated descriptor (used by config descriptor sizeof)
 const uint8_t desc_hid_report[] = {
@@ -2810,6 +2843,19 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 {
     if (instance >= MAX_DEVICE_HID_INTERFACES || !buffer || reqlen == 0) return 0;
 
+    // KMBox USB Control: status query feature report (report ID 0xF1)
+    // Return a short status string with humanization mode and queue info
+    if (instance == kmbox_control_instance() && report_id == KMBOX_REPORT_ID_STATUS) {
+        humanization_mode_t hm = smooth_get_humanization_mode();
+        uint8_t queue_count = 0;
+        smooth_get_stats(NULL, NULL, NULL, &queue_count);
+        int len = snprintf((char*)buffer, reqlen,
+                           "KMBox_OK:h=%d,q=%u",
+                           (int)hm, queue_count);
+        if (len < 0) len = 0;
+        return (uint16_t)(len < reqlen ? len : reqlen - 1);
+    }
+
     // Real passthrough for vendor/feature/input GET_REPORT. Logitech G Hub,
     // Razer Synapse, etc. use this for identity, battery, DPI and profile
     // handshakes; cached zeros make Windows software reject the device.
@@ -2881,6 +2927,20 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, const uint8_t *buffer, uint16_t bufsize)
 {
+    //------------------------------------------------------------------+
+    // KMBox USB Control Interface: intercept KM commands before forwarding
+    //------------------------------------------------------------------+
+    if (instance == kmbox_control_instance() && report_id == KMBOX_REPORT_ID_CMD) {
+        if (buffer != NULL && bufsize > 0) {
+            kmbox_process_command_buffer(buffer, bufsize);
+        }
+        return;
+    }
+    if (instance == kmbox_control_instance() && report_id == KMBOX_REPORT_ID_STATUS) {
+        // Status query via feature report — handled in get_report_cb
+        return;
+    }
+
     // Handle keyboard LED output reports (caps lock, etc.)
     if (report_type == HID_REPORT_TYPE_OUTPUT && report_id == runtime_kbd_report_id)
     {
@@ -3093,6 +3153,11 @@ uint8_t const * tud_descriptor_device_cb(void)
 // Other instances return verbatim cloned descriptors from the host device.
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
+    // KMBox USB control interface — always the last interface
+    if (instance == kmbox_control_instance()) {
+        return desc_hid_kmbox_control;
+    }
+
     // Multi-interface mode: return the correct descriptor for each instance
     if (mirrored_itf_count > 0 && instance < mirrored_itf_count && mirrored_itfs[instance].active) {
         if (mirrored_itfs[instance].is_mouse) {
@@ -3181,10 +3246,14 @@ static uint16_t write_hid_interface_desc(uint8_t *buf, uint16_t buf_max,
 }
 
 // Build the configuration descriptor from current runtime state.
-// Supports 1-4 HID interfaces mirroring the host device's layout.
+// Supports 1-4 HID interfaces mirroring the host device's layout,
+// plus 1 dedicated KMBox USB control interface.
 static void rebuild_configuration_descriptor(void) {
-    uint8_t num_itfs = (mirrored_itf_count > 0) ? mirrored_itf_count : 1;
-    if (num_itfs > MAX_DEVICE_HID_INTERFACES) num_itfs = MAX_DEVICE_HID_INTERFACES;
+    uint8_t num_mirrored = (mirrored_itf_count > 0) ? mirrored_itf_count : 1;
+    if (num_mirrored > MAX_DEVICE_HID_INTERFACES) num_mirrored = MAX_DEVICE_HID_INTERFACES;
+
+    // Add 1 for the KMBox USB control interface
+    uint8_t num_itfs = num_mirrored + 1;
 
     uint8_t cfg_attributes = TU_BIT(7) | (host_config_info.valid ? host_config_info.bmAttributes : TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP);
     uint8_t cfg_max_power = host_config_info.valid ? host_config_info.bMaxPower : (USB_CONFIG_POWER_MA / 2);
@@ -3192,7 +3261,7 @@ static void rebuild_configuration_descriptor(void) {
     // Leave 9 bytes for config header, fill interfaces after
     uint16_t pos = 9;
 
-    for (uint8_t i = 0; i < num_itfs; i++) {
+    for (uint8_t i = 0; i < num_mirrored; i++) {
         uint16_t report_len;
         uint8_t subclass, protocol, ep_interval;
         bool has_out = false;
@@ -3232,6 +3301,22 @@ static void rebuild_configuration_descriptor(void) {
         );
         if (written == 0) break;  // Buffer full
         pos += written;
+    }
+
+    // Add KMBox USB control interface (no boot protocol, vendor subclass)
+    {
+        uint16_t written = write_hid_interface_desc(
+            &desc_configuration_runtime[pos], DESC_CONFIG_RUNTIME_MAX - pos,
+            num_mirrored,              // bInterfaceNumber (after mirrored)
+            0,                         // subclass: none
+            HID_ITF_PROTOCOL_NONE,     // protocol: none (vendor-specific)
+            sizeof(desc_hid_kmbox_control),  // report descriptor length
+            0x81 + num_mirrored,       // EP IN address
+            CFG_TUD_HID_EP_BUFSIZE,
+            HID_POLLING_INTERVAL_MS,
+            false, 1                   // no OUT endpoint needed (uses SET_REPORT control)
+        );
+        if (written > 0) pos += written;
     }
 
     // Fill config descriptor header (first 9 bytes)
