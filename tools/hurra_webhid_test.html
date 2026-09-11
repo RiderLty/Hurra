@@ -3,14 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KMBox USB HID Test</title>
+<title>KMBox HID / 串口 Test</title>
 <style>
   :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --gold: #e94560; --text: #eee; --ok: #4ecca3; --warn: #f0a500; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, monospace; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 20px; }
   .app { max-width: 720px; width: 100%; }
-  h1 { font-size: 1.4em; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  h1 { font-size: 1.4em; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   h1 span { color: var(--gold); }
+  .repo-link {
+    margin-left: auto; font-size: 0.62em; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, var(--gold), #ff8a5c);
+    padding: 7px 16px; border-radius: 999px; text-decoration: none;
+    white-space: nowrap; letter-spacing: 0.3px;
+    box-shadow: 0 2px 10px rgba(233,68,96,0.45);
+    animation: repoPulse 2.2s ease-out infinite;
+  }
+  .repo-link:hover { filter: brightness(1.12); box-shadow: 0 2px 14px rgba(233,68,96,0.7); }
+  @keyframes repoPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(233,68,96,0.55), 0 2px 10px rgba(233,68,96,0.45); }
+    70%  { box-shadow: 0 0 0 12px rgba(233,68,96,0), 0 2px 10px rgba(233,68,96,0.45); }
+    100% { box-shadow: 0 0 0 0 rgba(233,68,96,0), 0 2px 10px rgba(233,68,96,0.45); }
+  }
   .card { background: var(--card); border-radius: 10px; padding: 18px; margin-bottom: 14px; border: 1px solid rgba(255,255,255,0.06); }
   .card h2 { font-size: 0.95em; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -38,23 +52,53 @@
   .badge-err { background: rgba(233,68,96,0.15); color: var(--gold); }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; }
   .hint { font-size: 0.75em; color: #666; margin-top: 6px; }
+  .footer { text-align: center; font-size: 0.85em; color: #888; margin: 6px 0 18px; }
+  .footer a {
+    display: inline-block; margin-top: 6px; padding: 6px 16px; border-radius: 999px;
+    font-weight: 700; color: var(--ok); text-decoration: none;
+    background: rgba(78,204,163,0.12); border: 1px solid rgba(78,204,163,0.45);
+  }
+  .footer a:hover { background: rgba(78,204,163,0.22); color: #7dffcf; }
   hr { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 10px 0; }
 </style>
 </head>
 <body>
 <div class="app">
-  <h1>🎯 KMBox <span>USB HID</span> Test</h1>
+  <h1>🎯 KMBox <span>HID / 串口</span> Test
+    <a class="repo-link" href="https://github.com/RiderLty/Hurra" target="_blank" rel="noopener">⭐ GitHub · RiderLty/Hurra ↗</a>
+  </h1>
 
   <!-- Device selection -->
   <div class="card">
     <h2>📡 设备连接</h2>
+
+    <!-- USB HID control interface -->
     <div class="row">
       <button class="btn-primary" id="btn-connect" onclick="connectDevice()">选择 HID 设备</button>
       <button class="btn-danger" id="btn-disconnect" onclick="disconnectDevice()" disabled>断开</button>
       <button id="btn-status" onclick="queryStatus()" disabled style="background:#2d5016;color:#4ecca3;">查询状态</button>
     </div>
+
+    <hr>
+
+    <!-- Serial (UART) transport -->
+    <div class="row">
+      <select id="serial-port-list" style="flex:1;min-width:160px;">
+        <option value="">— 已授权串口 —</option>
+      </select>
+      <button class="btn-cmd" onclick="refreshSerialPorts()" style="min-width:60px;">刷新</button>
+      <select id="serial-baud">
+        <option value="3000000" selected>3000000 (3 Mbaud)</option>
+        <option value="921600">921600</option>
+        <option value="115200">115200</option>
+        <option value="2000000">2000000</option>
+      </select>
+      <button class="btn-primary" id="btn-connect-serial" onclick="connectSerial()">选择串口</button>
+    </div>
+    <div class="hint">串口为裸 KMBox 协议（无 0xF0 0xAA 前缀、不填充）：文本命令自动补 <code>\n</code>，二进制原样发送。</div>
+
     <div class="device-info" id="device-info" style="margin-top:10px;">
-      <span class="name">未连接</span><br>请打开此页面为 <b>https://localhost</b> 或使用 Chrome/Edge 浏览器
+      <span class="name">未连接</span><br>请打开此页面为 <b>https://localhost</b> 或 <b>http://localhost</b>，使用 Chrome/Edge 浏览器
     </div>
   </div>
 
@@ -106,12 +150,23 @@
     <div class="log" id="log"><div class="entry info">等待设备连接...</div></div>
     <button class="btn-cmd" onclick="clearLog()" style="margin-top:8px;font-size:0.75em;">清空日志</button>
   </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    ⭐ 源码仓库 / Fork<br>
+    <a href="https://github.com/RiderLty/Hurra" target="_blank" rel="noopener">github.com/RiderLty/Hurra ↗</a>
+  </div>
 </div>
 
 <script>
 const PREFIX = [0xF0, 0xAA];
 const REPORT_SIZE = 64;
-let device = null;
+let device = null;          // HIDDevice
+let port = null;            // SerialPort
+let serialPorts = [];       // ports already granted via navigator.serial
+let serialReader = null;
+let serialWriter = null;
+let mode = null;            // 'hid' | 'serial' | null
 let connected = false;
 
 function $(id) { return document.getElementById(id); }
@@ -125,10 +180,11 @@ function log(msg, cls = 'info') {
 
 function clearLog() { $('log').innerHTML = '<div class="entry info">日志已清空</div>'; }
 
-function setConnected(dev) {
-  device = dev;
-  connected = !!dev;
+function setConnected(activeMode) {
+  mode = activeMode;
+  connected = !!activeMode;
   $('btn-connect').disabled = connected;
+  $('btn-connect-serial').disabled = connected;
   $('btn-disconnect').disabled = !connected;
   $('btn-status').disabled = !connected;
 }
@@ -151,7 +207,14 @@ function hexDump(data, maxLen = 32) {
   return s.trim();
 }
 
-// --- Device handling ---
+function buildPayload(cmdBytes) {
+  const payload = new Uint8Array(PREFIX.length + cmdBytes.length);
+  payload.set(PREFIX, 0);
+  payload.set(cmdBytes, PREFIX.length);
+  return payload;
+}
+
+// --- HID device handling ---
 
 // Find the KMBox USB control interface among the granted HID devices.
 // Each USB HID interface appears as a separate HIDDevice in WebHID; the KMBox
@@ -182,12 +245,13 @@ async function connectDevice() {
     const dev = findKmboxControlDevice(devices) || devices[0];
     await dev.open();
 
-    setConnected(dev);
+    device = dev;
+    setConnected('hid');
     $('device-info').innerHTML = `
       <span class="name">✅ ${dev.productName || 'HID Device'}</span><br>
       VID: ${dev.vendorId.toString(16).padStart(4,'0').toUpperCase()} &nbsp;
       PID: ${dev.productId.toString(16).padStart(4,'0').toUpperCase()}<br>
-      <span class="badge badge-ok">已连接</span>
+      <span class="badge badge-ok">HID 已连接</span>
     `;
 
     // Listen for input reports (status responses, etc.)
@@ -206,29 +270,138 @@ async function connectDevice() {
   }
 }
 
+// --- Serial (UART) handling ---
+
+function portLabel(p, i) {
+  try {
+    const info = (typeof p.getInfo === 'function') ? p.getInfo() : {};
+    if (info && info.usbVendorId) {
+      const vid = info.usbVendorId.toString(16).toUpperCase().padStart(4, '0');
+      const pid = (info.usbProductId || 0).toString(16).toUpperCase().padStart(4, '0');
+      return `串口 ${i + 1} (VID:${vid} PID:${pid})`;
+    }
+  } catch (_) { /* ignore */ }
+  return `串口 ${i + 1}`;
+}
+
+async function refreshSerialPorts() {
+  if (!('serial' in navigator)) return;
+  try {
+    serialPorts = await navigator.serial.getPorts();
+  } catch (_) {
+    serialPorts = [];
+  }
+  const sel = $('serial-port-list');
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">— 已授权串口 —</option>';
+  serialPorts.forEach((p, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = portLabel(p, i);
+    sel.appendChild(opt);
+  });
+  if (keep !== '' && serialPorts[keep]) sel.value = keep;
+  log(`发现 ${serialPorts.length} 个已授权串口（选择后可点"选择串口"直接连接）`, 'info');
+}
+
+async function connectSerial() {
+  if (!('serial' in navigator)) { log('此浏览器不支持 Web Serial', 'err'); return; }
+  try {
+    const sel = $('serial-port-list').value;
+    let p;
+    if (sel !== '' && serialPorts[parseInt(sel, 10)]) {
+      p = serialPorts[parseInt(sel, 10)];
+    } else {
+      p = await navigator.serial.requestPort();
+    }
+
+    const baud = parseInt($('serial-baud').value, 10) || 3000000;
+    await p.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
+
+    port = p;
+    serialWriter = p.writable.getWriter();
+    setConnected('serial');
+
+    const idx = serialPorts.indexOf(p);
+    $('device-info').innerHTML = `
+      <span class="name">✅ ${idx >= 0 ? portLabel(p, idx) : 'Serial Port'}</span><br>
+      波特率: ${baud} &nbsp; 8N1 &nbsp; 无流控<br>
+      <span class="badge badge-ok">串口已连接</span>
+    `;
+
+    log(`已连接串口 @ ${baud} baud`, 'rx');
+    readSerialLoop();
+
+    // Keep the granted-port list fresh (requestPort() adds to it).
+    refreshSerialPorts();
+  } catch (e) {
+    log(`串口连接失败: ${e.message}`, 'err');
+    console.error(e);
+  }
+}
+
+async function readSerialLoop() {
+  const decoder = new TextDecoder();
+  while (port && port.readable) {
+    const reader = port.readable.getReader();
+    serialReader = reader;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && value.length) {
+          const text = decoder.decode(value, { stream: true }).replace(/\0/g, '');
+          if (text) log(`📩 RX: ${text.replace(/[\r\n]+$/, '')}`, 'rx');
+        }
+      }
+    } catch (e) {
+      if (port) log(`串口读取错误: ${e.message}`, 'err');
+    } finally {
+      if (serialReader === reader) serialReader = null;
+      try { reader.releaseLock(); } catch (_) { /* ignore */ }
+    }
+  }
+}
+
 async function disconnectDevice() {
   try {
-    if (device) {
+    if (mode === 'serial') {
+      // Clear `port` first so the read loop treats the teardown as intentional
+      // instead of logging a spurious read error.
+      const p = port;
+      port = null;
+      if (serialReader) { try { await serialReader.cancel(); } catch (_) {} serialReader = null; }
+      if (serialWriter) { try { serialWriter.releaseLock(); } catch (_) {} serialWriter = null; }
+      if (p) { try { await p.close(); } catch (_) {} }
+      log('串口已断开', 'info');
+    } else if (device) {
       await device.close();
-      setConnected(null);
-      $('device-info').innerHTML = '<span class="name">未连接</span><br>设备已断开';
+      device = null;
       log('设备已断开', 'info');
     }
+    setConnected(null);
+    $('device-info').innerHTML = '<span class="name">未连接</span><br>设备已断开';
   } catch (e) {
     log(`断开失败: ${e.message}`, 'err');
   }
 }
 
-// --- Sending ---
+// --- Sending (transport-agnostic) ---
 
-async function sendReport(data) {
+// HID: prepend the 0xF0 0xAA magic and pad to the 64-byte output report.
+// Serial: send the raw KMBox payload (text commands already carry '\n').
+async function sendBytes(bytes) {
   if (!connected) { log('请先连接设备!', 'err'); return false; }
   try {
-    const report = padReport(data);
-    log(`📤 TX (${report.length}B): ${hexDump(report)}`, 'tx');
-    // Use reportId 0 (no report ID in descriptor)
-    await device.sendReport(0, report);
-    log(`✅ 发送成功`, 'tx');
+    const data = (bytes instanceof Uint8Array) ? bytes : new Uint8Array(bytes);
+    if (mode === 'hid') {
+      const report = padReport(buildPayload(data));
+      log(`📤 TX HID (${report.length}B): ${hexDump(report)}`, 'tx');
+      await device.sendReport(0, report);
+    } else {
+      log(`📤 TX Serial (${data.length}B): ${hexDump(data)}`, 'tx');
+      await serialWriter.write(data);
+    }
     return true;
   } catch (e) {
     log(`❌ 发送失败: ${e.message}`, 'err');
@@ -236,33 +409,11 @@ async function sendReport(data) {
   }
 }
 
-async function sendFeatureReport(data) {
-  if (!connected) { log('请先连接设备!', 'err'); return false; }
-  try {
-    const report = padReport(data);
-    log(`📤 FEATURE TX (${report.length}B): ${hexDump(report)}`, 'tx');
-    await device.sendFeatureReport(0, report);
-    log(`✅ Feature 发送成功`, 'tx');
-    return true;
-  } catch (e) {
-    log(`❌ Feature 发送失败: ${e.message}`, 'err');
-    return false;
-  }
-}
-
-function buildPayload(cmdBytes) {
-  const payload = new Uint8Array(PREFIX.length + cmdBytes.length);
-  payload.set(PREFIX, 0);
-  payload.set(cmdBytes, PREFIX.length);
-  return payload;
-}
-
 // --- Commands ---
 
 function sendText(cmd) {
   const enc = new TextEncoder();
-  const cmdBytes = enc.encode(cmd + '\n');  // Add newline for text parser
-  sendReport(buildPayload(cmdBytes));
+  sendBytes(enc.encode(cmd + '\n'));  // Add newline for text parser
 }
 
 function sendFastMove() {
@@ -277,7 +428,7 @@ function sendFastMove() {
   pkt[5] = 0x00;             // buttons
   pkt[6] = 0x00;             // wheel
   pkt[7] = 0x00;             // reserved
-  sendReport(buildPayload(pkt));
+  sendBytes(pkt);
 }
 
 function sendCustom() {
@@ -296,7 +447,7 @@ function sendHex() {
     for (let i = 0; i < clean.length; i += 2) {
       bytes[i / 2] = parseInt(clean.substring(i, i + 2), 16);
     }
-    sendReport(buildPayload(bytes));
+    sendBytes(bytes);
   } catch (e) {
     log(`Hex 解析错误: ${e.message}`, 'err');
   }
@@ -304,6 +455,15 @@ function sendHex() {
 
 async function queryStatus() {
   if (!connected) { log('请先连接设备!', 'err'); return; }
+
+  // Serial has no feature reports — use the text status command instead and
+  // let the RX read loop print the response.
+  if (mode === 'serial') {
+    log('📡 发送 KMBOX_STATUS（响应见下方 RX）...', 'info');
+    sendText('KMBOX_STATUS');
+    return;
+  }
+
   log('📡 查询状态...', 'info');
   try {
     const report = await device.receiveFeatureReport(0);
@@ -327,7 +487,7 @@ async function queryStatus() {
 // --- Keyboard shortcuts ---
 document.addEventListener('keydown', (e) => {
   if (!connected) return;
-  if (e.target.tagName === 'INPUT') return; // Don't intercept typing
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; // Don't intercept typing
   switch (e.key.toLowerCase()) {
     case 'arrowright': sendText('km.move(50,0)'); break;
     case 'arrowleft':  sendText('km.move(-50,0)'); break;
@@ -339,21 +499,34 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- Init ---
-if (!('hid' in navigator)) {
-  $('device-info').innerHTML = '<span style="color:#e94560;">⚠️ 此浏览器不支持 WebHID</span><br>请使用 Chrome/Edge 86+ 并打开 <code>chrome://flags/#enable-experimental-web-platform-features</code>';
+const hasHid = ('hid' in navigator);
+const hasSerial = ('serial' in navigator);
+
+if (!hasHid) {
   $('btn-connect').disabled = true;
-  log('WebHID 不可用', 'err');
-} else {
-  log('WebHID 就绪 — 点击 "选择 HID 设备" 开始', 'info');
+  log('WebHID 不可用（请用 Chrome/Edge）', 'err');
+}
+if (!hasSerial) {
+  $('btn-connect-serial').disabled = true;
+  log('Web Serial 不可用（请用 Chrome/Edge）', 'err');
+}
+if (hasHid || hasSerial) {
+  log(`就绪 — ${hasHid ? '可选择 HID 设备' : ''}${hasHid && hasSerial ? ' 或 ' : ''}${hasSerial ? '可选择/连接串口' : ''}`, 'info');
+}
+if (!hasHid && !hasSerial) {
+  $('device-info').innerHTML = '<span style="color:#e94560;">⚠️ 此浏览器不支持 WebHID / Web Serial</span><br>请使用 Chrome/Edge 并打开 https://localhost 或 http://localhost';
 }
 
-// Auto-reconnect on page load if previously authorized
+// Auto-list previously authorized devices/ports on page load
 (async () => {
   try {
-    const devices = await navigator.hid.getDevices();
-    if (devices.length > 0) {
-      log(`发现 ${devices.length} 个已授权设备，点击连接`, 'info');
+    if (hasHid) {
+      const devices = await navigator.hid.getDevices();
+      if (devices.length > 0) log(`发现 ${devices.length} 个已授权 HID 设备，点击连接`, 'info');
     }
+  } catch (e) { /* ignore */ }
+  try {
+    if (hasSerial) await refreshSerialPorts();
   } catch (e) { /* ignore */ }
 })();
 </script>

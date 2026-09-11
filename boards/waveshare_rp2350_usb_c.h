@@ -9,7 +9,8 @@
  *   - WS2812 RGB LED on GPIO16
  *   - No discrete LED
  *   - 15 GPIOs broken out (GPIO0-10, GPIO26-29)
- *   - UART0 TX=GPIO0, RX=GPIO1
+ *   - UART0 TX=GPIO2, RX=GPIO3 (matches the pico-hid-mapper wiring; on
+ *     RP2350 these pins select UART0 via the UART_AUX function, not F2)
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -44,11 +45,14 @@ pico_board_cmake_set(PICO_PLATFORM, rp2350)
 #ifndef PICO_DEFAULT_UART
 #define PICO_DEFAULT_UART 0
 #endif
+// KMBox serial on GPIO2 (TX) / GPIO3 (RX) — same wiring as pico-hid-mapper.
+// RP2350 maps UART0 onto these pins through the UART_AUX function, so the
+// pin mux must use UART_FUNCSEL_NUM(), not a hardcoded GPIO_FUNC_UART.
 #ifndef PICO_DEFAULT_UART_TX_PIN
-#define PICO_DEFAULT_UART_TX_PIN 0
+#define PICO_DEFAULT_UART_TX_PIN 2
 #endif
 #ifndef PICO_DEFAULT_UART_RX_PIN
-#define PICO_DEFAULT_UART_RX_PIN 1
+#define PICO_DEFAULT_UART_RX_PIN 3
 #endif
 
 // --- LED ---
