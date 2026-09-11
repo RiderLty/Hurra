@@ -57,19 +57,27 @@ The parser (`kmbox_serial_handler.c`) supports:
 #### USB HID Control Interface (KMBox on USB)
 
 The 5th HID interface (always present, instance index = `kmbox_control_instance()`) provides:
-- **Output Report 0xF0**: PC sends KM commands via `hid_write()` / SET_REPORT
-- **Feature Report 0xF1**: PC queries status (humanization mode, queue depth)
+- **Output report (64 bytes, no report ID)**: PC sends KM commands. Bytes 0-1 are the `0xF0 0xAA` magic prefix, bytes 2-63 the KM command payload. Delivered to `tud_hid_set_report_cb` via **either** SET_REPORT (WebHID `sendReport`) **or** the interrupt OUT endpoint (hidapi `dev.write`) — the interface exposes both an IN and an OUT endpoint.
+- **Feature report (64 bytes)**: PC queries status (humanization mode, queue depth)
 - All non-KMBox SET_REPORT traffic on mirrored interfaces is forwarded to the physical device transparently (DPI, RGB, macros, etc.)
+
+**Important:** the KMBox control interface is the *last* HID interface, so `dev.open(vid, pid)` in hidapi opens the first (mouse) interface, not the control interface. You must enumerate and open the control interface by path. The first byte hidapi sends is the report ID — use `0` since the control interface has no report ID. The firmware accepts the `0xF0 0xAA` magic prefix at byte 0 (WebHID sends the report verbatim) *or* at byte 1 behind a leading `0x00` report-ID byte (hidapi contract).
 
 PC-side usage with hidapi:
 ```python
 import hid
+
+# Enumerate the proxied device; the KMBox control interface is the LAST one.
+devices = hid.enumerate(0xXXXX, 0xXXXX)  # VID/PID of the proxied device
+# The enumerate() list is ordered by interface number — pick the highest.
+control = max(devices, key=lambda d: d['interface_number'])
 dev = hid.device()
-dev.open(0xXXXX, 0xXXXX)  # VID/PID of the proxied device
-# Send a KM text command
-dev.write(b'\xf0' + b'km.move(100,50)\x00' + b'\x00'*44)  # 64-byte report
+dev.open_path(control['path'])
+
+# Send a KM text command: byte 0 = report ID 0, bytes 1-2 = 0xF0 0xAA magic
+dev.write(b'\x00' + b'\xf0\xaa' + b'km.move(100,50)\x00' + b'\x00'*45)  # 64-byte report
 # Send an 8-byte fast binary command
-dev.write(b'\xf0' + fast_move_packet + b'\x00'*55)  # padded to 64 bytes
+dev.write(b'\x00' + b'\xf0\xaa' + fast_move_packet + b'\x00'*53)  # padded to 64 bytes
 ```
 
 ### Movement Humanization

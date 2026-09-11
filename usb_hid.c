@@ -2849,7 +2849,10 @@ void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t instance, uint8_t 
 // HID device callbacks with improved validation
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer, uint16_t reqlen)
 {
-    if (instance >= MAX_DEVICE_HID_INTERFACES || !buffer || reqlen == 0) return 0;
+    // Guard against out-of-range instances. Use CFG_TUD_HID (all device HID
+    // instances incl. the KMBox control interface), not MAX_DEVICE_HID_INTERFACES
+    // (mirrored only) — a 4-interface mouse puts KMBox control at instance 4.
+    if (instance >= CFG_TUD_HID || !buffer || reqlen == 0) return 0;
 
     // KMBox USB Control: status query via feature report
     // Return a short status string with humanization mode and queue info
@@ -2941,11 +2944,31 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     // Output report to KMBox interface: check for 0xF0 0xAA magic prefix.
     // Prefix found → process payload as KM command.
     // No prefix → ignored (not a valid KMBox command).
+    //
+    // Accept the prefix at offset 0 (WebHID sendReport() delivers the report
+    // data verbatim) OR at offset 1 behind a leading 0x00 (hidapi prepends a
+    // report-ID byte per its API contract; 0x00 for interfaces without report
+    // IDs). This keeps the command channel working across both host stacks.
     if (instance == kmbox_control_instance()) {
+        const uint8_t *payload = NULL;
+        uint16_t payload_len = 0;
+
         if (buffer != NULL && bufsize >= KMBOX_USB_PREFIX_LEN &&
             buffer[0] == KMBOX_USB_PREFIX_0 && buffer[1] == KMBOX_USB_PREFIX_1) {
-            kmbox_process_command_buffer(buffer + KMBOX_USB_PREFIX_LEN,
-                                         bufsize - KMBOX_USB_PREFIX_LEN);
+            payload     = buffer + KMBOX_USB_PREFIX_LEN;
+            payload_len = (uint16_t)(bufsize - KMBOX_USB_PREFIX_LEN);
+        } else if (buffer != NULL && bufsize >= KMBOX_USB_PREFIX_LEN + 1 &&
+                   buffer[0] == 0x00 &&
+                   buffer[1] == KMBOX_USB_PREFIX_0 && buffer[2] == KMBOX_USB_PREFIX_1) {
+            payload     = buffer + KMBOX_USB_PREFIX_LEN + 1;
+            payload_len = (uint16_t)(bufsize - KMBOX_USB_PREFIX_LEN - 1);
+        }
+
+        if (payload != NULL) {
+            // All KM commands arriving over the HID control interface are
+            // processed with the full feature set (movement, wheel, buttons,
+            // keyboard, Xbox, config, ...) — identical to the UART path.
+            kmbox_process_command_buffer(payload, payload_len);
         }
         return;
     }
@@ -3323,7 +3346,10 @@ static void rebuild_configuration_descriptor(void) {
             0x81 + num_mirrored,       // EP IN address
             CFG_TUD_HID_EP_BUFSIZE,
             HID_POLLING_INTERVAL_MS,
-            false, 1                   // no OUT endpoint needed (uses SET_REPORT control)
+            true, HID_POLLING_INTERVAL_MS  // OUT endpoint: hidapi writes via interrupt OUT;
+                                          // TinyUSB routes it to tud_hid_set_report_cb the
+                                          // same way as SET_REPORT (WebHID sendReport)
+
         );
         if (written > 0) pos += written;
     }

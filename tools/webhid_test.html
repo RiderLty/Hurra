@@ -153,6 +153,25 @@ function hexDump(data, maxLen = 32) {
 
 // --- Device handling ---
 
+// Find the KMBox USB control interface among the granted HID devices.
+// Each USB HID interface appears as a separate HIDDevice in WebHID; the KMBox
+// control interface is the LAST one (added after the mirrored mouse interfaces),
+// so devices[0] is the mouse, not the control interface.  The control interface
+// is the only one whose collection sits on vendor Usage Page 0xFF00 and exposes
+// BOTH an output report (64B, no report ID) and a feature report.
+function findKmboxControlDevice(devices) {
+  for (const d of devices) {
+    for (const c of (d.collections || [])) {
+      if (c.usagePage === 0xFF00 && c.usage === 0x01) {
+        const hasOut  = (c.outputReports || []).some(r => r.reportId === 0);
+        const hasFeat = (c.featureReports || []).length > 0;
+        if (hasOut && hasFeat) return d;
+      }
+    }
+  }
+  return null;
+}
+
 async function connectDevice() {
   try {
     const devices = await navigator.hid.requestDevice({
@@ -160,7 +179,7 @@ async function connectDevice() {
     });
     if (devices.length === 0) return;
 
-    const dev = devices[0];
+    const dev = findKmboxControlDevice(devices) || devices[0];
     await dev.open();
 
     setConnected(dev);
