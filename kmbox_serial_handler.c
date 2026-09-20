@@ -915,9 +915,12 @@ void kmbox_serial_init(void) {
     g_connection_state = BRIDGE_STATE_WAITING;
     g_last_data_time_ms = to_ms_since_boot(get_absolute_time());
     
-    // Configure GPIO pins
-    gpio_set_function(KMBOX_UART_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(KMBOX_UART_RX_PIN, GPIO_FUNC_UART);
+    // Configure GPIO pins.
+    // Use UART_FUNCSEL_NUM() rather than a hardcoded GPIO_FUNC_UART: on
+    // RP2350, UART0 lives on the UART_AUX function (F11) for pins such as
+    // GPIO2/3, while GPIO0/1 use the plain UART function (F2).
+    gpio_set_function(KMBOX_UART_TX_PIN, UART_FUNCSEL_NUM(KMBOX_UART, KMBOX_UART_TX_PIN));
+    gpio_set_function(KMBOX_UART_RX_PIN, UART_FUNCSEL_NUM(KMBOX_UART, KMBOX_UART_RX_PIN));
     gpio_pull_up(KMBOX_UART_RX_PIN);
     
     // Initialize UART
