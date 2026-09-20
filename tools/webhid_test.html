@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KMBox USB HID Test</title>
+<style>
+  :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --gold: #e94560; --text: #eee; --ok: #4ecca3; --warn: #f0a500; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, monospace; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 20px; }
+  .app { max-width: 720px; width: 100%; }
+  h1 { font-size: 1.4em; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  h1 span { color: var(--gold); }
+  .card { background: var(--card); border-radius: 10px; padding: 18px; margin-bottom: 14px; border: 1px solid rgba(255,255,255,0.06); }
+  .card h2 { font-size: 0.95em; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font-family: inherit; font-size: 0.9em; padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all .15s; }
+  button:active { transform: scale(0.97); }
+  .btn-primary { background: var(--gold); color: #fff; }
+  .btn-primary:hover { background: #ff6a80; }
+  .btn-cmd { background: var(--accent); color: var(--text); font-size: 0.82em; padding: 7px 14px; min-width: 80px; }
+  .btn-cmd:hover { background: #1a5a8a; }
+  .btn-danger { background: #c0392b; color: #fff; font-size: 0.8em; }
+  .btn-danger:hover { background: #e74c3c; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  select, input { font-family: inherit; font-size: 0.9em; padding: 7px 10px; border-radius: 6px; border: 1px solid #444; background: #1a1a2e; color: var(--text); }
+  input { flex: 1; min-width: 120px; }
+  .device-info { font-size: 0.85em; color: #aaa; word-break: break-all; }
+  .device-info .name { color: var(--ok); font-weight: 600; font-size: 1.05em; }
+  .log { background: #0d1117; border-radius: 8px; padding: 12px; max-height: 320px; overflow-y: auto; font-size: 0.8em; line-height: 1.6; }
+  .log .entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .log .tx { color: #58a6ff; }
+  .log .rx { color: var(--ok); }
+  .log .err { color: var(--gold); }
+  .log .info { color: #8b949e; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.78em; font-weight: 600; }
+  .badge-ok { background: rgba(78,204,163,0.15); color: var(--ok); }
+  .badge-err { background: rgba(233,68,96,0.15); color: var(--gold); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; }
+  .hint { font-size: 0.75em; color: #666; margin-top: 6px; }
+  hr { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 10px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>🎯 KMBox <span>USB HID</span> Test</h1>
+
+  <!-- Device selection -->
+  <div class="card">
+    <h2>📡 设备连接</h2>
+    <div class="row">
+      <button class="btn-primary" id="btn-connect" onclick="connectDevice()">选择 HID 设备</button>
+      <button class="btn-danger" id="btn-disconnect" onclick="disconnectDevice()" disabled>断开</button>
+      <button id="btn-status" onclick="queryStatus()" disabled style="background:#2d5016;color:#4ecca3;">查询状态</button>
+    </div>
+    <div class="device-info" id="device-info" style="margin-top:10px;">
+      <span class="name">未连接</span><br>请打开此页面为 <b>https://localhost</b> 或使用 Chrome/Edge 浏览器
+    </div>
+  </div>
+
+  <!-- Quick commands -->
+  <div class="card">
+    <h2>🎮 快速命令</h2>
+    <div class="grid">
+      <button class="btn-cmd" onclick="sendText('km.move(100,0)')">→ 右移 100</button>
+      <button class="btn-cmd" onclick="sendText('km.move(-100,0)')">← 左移 100</button>
+      <button class="btn-cmd" onclick="sendText('km.move(0,-100)')">↑ 上移 100</button>
+      <button class="btn-cmd" onclick="sendText('km.move(0,100)')">↓ 下移 100</button>
+      <button class="btn-cmd" onclick="sendText('km.click(0)')">🖱️ 左键</button>
+      <button class="btn-cmd" onclick="sendText('km.click(1)')">🖱️ 右键</button>
+      <button class="btn-cmd" onclick="sendText('km.wheel(5)')">🔄 滚上</button>
+      <button class="btn-cmd" onclick="sendText('km.wheel(-5)')">🔄 滚下</button>
+      <button class="btn-cmd" onclick="sendText('km.left(1)')">⬇️ 左键按下</button>
+      <button class="btn-cmd" onclick="sendText('km.left(0)')">⬆️ 左键释放</button>
+    </div>
+    <div class="hint">命令发出后鼠标应立即有反应</div>
+  </div>
+
+  <!-- Fast binary commands -->
+  <div class="card">
+    <h2>⚡ 二进制快速命令 (8 bytes)</h2>
+    <div class="row" style="gap:6px;">
+      <span style="font-size:0.8em;color:#999;">X:</span> <input id="bin-x" type="number" value="100" style="width:70px;">
+      <span style="font-size:0.8em;color:#999;">Y:</span> <input id="bin-y" type="number" value="-50" style="width:70px;">
+      <button class="btn-cmd" onclick="sendFastMove()">发送 Fast Move</button>
+    </div>
+    <div class="hint">8 字节二进制: [0x01, x_lo, x_hi, y_lo, y_hi, buttons, wheel, 0x00]</div>
+  </div>
+
+  <!-- Custom command -->
+  <div class="card">
+    <h2>✏️ 自定义命令</h2>
+    <div class="row">
+      <input id="custom-cmd" value="km.move(50,30)" placeholder="输入 KM 命令...">
+      <button class="btn-primary" onclick="sendCustom()">发送</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <input id="custom-hex" placeholder="或输入 hex: 01 64 00 CE FF 00 00 00" style="font-size:0.82em;">
+      <button class="btn-cmd" onclick="sendHex()" style="white-space:nowrap;">发送 Hex</button>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <h2>📋 日志</h2>
+    <div class="log" id="log"><div class="entry info">等待设备连接...</div></div>
+    <button class="btn-cmd" onclick="clearLog()" style="margin-top:8px;font-size:0.75em;">清空日志</button>
+  </div>
+</div>
+
+<script>
+const PREFIX = [0xF0, 0xAA];
+const REPORT_SIZE = 64;
+let device = null;
+let connected = false;
+
+function $(id) { return document.getElementById(id); }
+
+function log(msg, cls = 'info') {
+  const el = $('log');
+  const time = new Date().toLocaleTimeString();
+  el.insertAdjacentHTML('beforeend', `<div class="entry ${cls}">[${time}] ${msg}</div>`);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() { $('log').innerHTML = '<div class="entry info">日志已清空</div>'; }
+
+function setConnected(dev) {
+  device = dev;
+  connected = !!dev;
+  $('btn-connect').disabled = connected;
+  $('btn-disconnect').disabled = !connected;
+  $('btn-status').disabled = !connected;
+}
+
+function padReport(data) {
+  const buf = new Uint8Array(REPORT_SIZE);
+  buf.fill(0);
+  const src = new Uint8Array(data);
+  const len = Math.min(src.length, REPORT_SIZE);
+  for (let i = 0; i < len; i++) buf[i] = src[i];
+  return buf;
+}
+
+function hexDump(data, maxLen = 32) {
+  const a = new Uint8Array(data);
+  const len = Math.min(a.length, maxLen);
+  let s = '';
+  for (let i = 0; i < len; i++) s += a[i].toString(16).padStart(2,'0') + ' ';
+  if (a.length > maxLen) s += '...';
+  return s.trim();
+}
+
+// --- Device handling ---
+
+// Find the KMBox USB control interface among the granted HID devices.
+// Each USB HID interface appears as a separate HIDDevice in WebHID; the KMBox
+// control interface is the LAST one (added after the mirrored mouse interfaces),
+// so devices[0] is the mouse, not the control interface.  The control interface
+// is the only one whose collection sits on vendor Usage Page 0xFF00 and exposes
+// BOTH an output report (64B, no report ID) and a feature report.
+function findKmboxControlDevice(devices) {
+  for (const d of devices) {
+    for (const c of (d.collections || [])) {
+      if (c.usagePage === 0xFF00 && c.usage === 0x01) {
+        const hasOut  = (c.outputReports || []).some(r => r.reportId === 0);
+        const hasFeat = (c.featureReports || []).length > 0;
+        if (hasOut && hasFeat) return d;
+      }
+    }
+  }
+  return null;
+}
+
+async function connectDevice() {
+  try {
+    const devices = await navigator.hid.requestDevice({
+      filters: []  // Show all HID devices; user picks the KMBox one
+    });
+    if (devices.length === 0) return;
+
+    const dev = findKmboxControlDevice(devices) || devices[0];
+    await dev.open();
+
+    setConnected(dev);
+    $('device-info').innerHTML = `
+      <span class="name">✅ ${dev.productName || 'HID Device'}</span><br>
+      VID: ${dev.vendorId.toString(16).padStart(4,'0').toUpperCase()} &nbsp;
+      PID: ${dev.productId.toString(16).padStart(4,'0').toUpperCase()}<br>
+      <span class="badge badge-ok">已连接</span>
+    `;
+
+    // Listen for input reports (status responses, etc.)
+    dev.addEventListener('inputreport', (e) => {
+      const decoder = new TextDecoder();
+      const text = decoder.decode(new Uint8Array(e.data));
+      log(`📩 RX: ${text.replace(/\0/g,'')}`, 'rx');
+    });
+
+    log(`已连接: ${dev.productName || 'Unknown'} (VID:0x${dev.vendorId.toString(16)})`, 'rx');
+    log(`接口 #${dev.collections?.[0]?.inputReports?.length || '?'} 个输入, #${dev.collections?.[0]?.outputReports?.length || '?'} 个输出`, 'info');
+
+  } catch (e) {
+    log(`连接失败: ${e.message}`, 'err');
+    console.error(e);
+  }
+}
+
+async function disconnectDevice() {
+  try {
+    if (device) {
+      await device.close();
+      setConnected(null);
+      $('device-info').innerHTML = '<span class="name">未连接</span><br>设备已断开';
+      log('设备已断开', 'info');
+    }
+  } catch (e) {
+    log(`断开失败: ${e.message}`, 'err');
+  }
+}
+
+// --- Sending ---
+
+async function sendReport(data) {
+  if (!connected) { log('请先连接设备!', 'err'); return false; }
+  try {
+    const report = padReport(data);
+    log(`📤 TX (${report.length}B): ${hexDump(report)}`, 'tx');
+    // Use reportId 0 (no report ID in descriptor)
+    await device.sendReport(0, report);
+    log(`✅ 发送成功`, 'tx');
+    return true;
+  } catch (e) {
+    log(`❌ 发送失败: ${e.message}`, 'err');
+    return false;
+  }
+}
+
+async function sendFeatureReport(data) {
+  if (!connected) { log('请先连接设备!', 'err'); return false; }
+  try {
+    const report = padReport(data);
+    log(`📤 FEATURE TX (${report.length}B): ${hexDump(report)}`, 'tx');
+    await device.sendFeatureReport(0, report);
+    log(`✅ Feature 发送成功`, 'tx');
+    return true;
+  } catch (e) {
+    log(`❌ Feature 发送失败: ${e.message}`, 'err');
+    return false;
+  }
+}
+
+function buildPayload(cmdBytes) {
+  const payload = new Uint8Array(PREFIX.length + cmdBytes.length);
+  payload.set(PREFIX, 0);
+  payload.set(cmdBytes, PREFIX.length);
+  return payload;
+}
+
+// --- Commands ---
+
+function sendText(cmd) {
+  const enc = new TextEncoder();
+  const cmdBytes = enc.encode(cmd + '\n');  // Add newline for text parser
+  sendReport(buildPayload(cmdBytes));
+}
+
+function sendFastMove() {
+  const x = parseInt($('bin-x').value) || 0;
+  const y = parseInt($('bin-y').value) || 0;
+  const pkt = new Uint8Array(8);
+  pkt[0] = 0x01;             // FAST_CMD_MOUSE_MOVE
+  pkt[1] = x & 0xFF;         // X low
+  pkt[2] = (x >> 8) & 0xFF;  // X high
+  pkt[3] = y & 0xFF;         // Y low
+  pkt[4] = (y >> 8) & 0xFF;  // Y high
+  pkt[5] = 0x00;             // buttons
+  pkt[6] = 0x00;             // wheel
+  pkt[7] = 0x00;             // reserved
+  sendReport(buildPayload(pkt));
+}
+
+function sendCustom() {
+  const cmd = $('custom-cmd').value.trim();
+  if (!cmd) { log('请输入命令', 'err'); return; }
+  sendText(cmd);
+}
+
+function sendHex() {
+  const hex = $('custom-hex').value.trim();
+  if (!hex) { log('请输入 hex 字符串', 'err'); return; }
+  try {
+    const clean = hex.replace(/\s+/g, '');
+    if (clean.length % 2 !== 0) throw new Error('hex 长度必须为偶数');
+    const bytes = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < clean.length; i += 2) {
+      bytes[i / 2] = parseInt(clean.substring(i, i + 2), 16);
+    }
+    sendReport(buildPayload(bytes));
+  } catch (e) {
+    log(`Hex 解析错误: ${e.message}`, 'err');
+  }
+}
+
+async function queryStatus() {
+  if (!connected) { log('请先连接设备!', 'err'); return; }
+  log('📡 查询状态...', 'info');
+  try {
+    const report = await device.receiveFeatureReport(0);
+    const decoder = new TextDecoder();
+    const text = decoder.decode(new Uint8Array(report));
+    log(`📩 状态: ${text.replace(/\0/g,'')}`, 'rx');
+  } catch (e) {
+    log(`状态查询失败: ${e.message}`, 'err');
+    // Fallback: try sendFeatureReport for status
+    log('尝试通过 receiveFeatureReport 获取状态...', 'info');
+    try {
+      const buf = padReport(buildPayload([]));
+      const report = await device.receiveFeatureReport(0);
+      log(`📩 Feature 响应 (${report.byteLength}B): ${hexDump(report)}`, 'rx');
+    } catch (e2) {
+      log(`Feature 查询也失败: ${e2.message}`, 'err');
+    }
+  }
+}
+
+// --- Keyboard shortcuts ---
+document.addEventListener('keydown', (e) => {
+  if (!connected) return;
+  if (e.target.tagName === 'INPUT') return; // Don't intercept typing
+  switch (e.key.toLowerCase()) {
+    case 'arrowright': sendText('km.move(50,0)'); break;
+    case 'arrowleft':  sendText('km.move(-50,0)'); break;
+    case 'arrowup':    sendText('km.move(0,-50)'); break;
+    case 'arrowdown':  sendText('km.move(0,50)'); break;
+    case ' ': e.preventDefault(); sendText('km.click(0)'); break;  // space = left click
+    default: return;
+  }
+});
+
+// --- Init ---
+if (!('hid' in navigator)) {
+  $('device-info').innerHTML = '<span style="color:#e94560;">⚠️ 此浏览器不支持 WebHID</span><br>请使用 Chrome/Edge 86+ 并打开 <code>chrome://flags/#enable-experimental-web-platform-features</code>';
+  $('btn-connect').disabled = true;
+  log('WebHID 不可用', 'err');
+} else {
+  log('WebHID 就绪 — 点击 "选择 HID 设备" 开始', 'info');
+}
+
+// Auto-reconnect on page load if previously authorized
+(async () => {
+  try {
+    const devices = await navigator.hid.getDevices();
+    if (devices.length > 0) {
+      log(`发现 ${devices.length} 个已授权设备，点击连接`, 'info');
+    }
+  } catch (e) { /* ignore */ }
+})();
+</script>
+</body>
+</html>

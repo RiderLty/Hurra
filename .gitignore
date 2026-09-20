@@ -19,3 +19,4 @@ tools/tmp/*.html
 .cache/
 tools/kmbox_relay
 
+.DS_Store

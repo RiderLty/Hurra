@@ -74,6 +74,10 @@ void kmbox_send_status(const char* message);
 // Send ping to bridge (for bidirectional testing)
 void kmbox_send_ping_to_bridge(void);
 
+// Process a command buffer from USB HID SET_REPORT (no UART framing).
+// Accepts both text commands (e.g. "km.move(100,50)") and 8-byte fast binary packets.
+void kmbox_process_command_buffer(const uint8_t *data, uint16_t len);
+
 // Send info packet to bridge (humanization settings, temperature, etc.)
 void kmbox_send_info_to_bridge(void);
 

@@ -1172,6 +1172,55 @@ void kmbox_serial_task(void) {
 }
 
 //--------------------------------------------------------------------+
+// USB HID Command Buffer Processing
+//--------------------------------------------------------------------+
+
+// Process a command buffer received via USB HID SET_REPORT (no UART framing).
+// Accepts both text commands and 8-byte binary fast commands.
+void kmbox_process_command_buffer(const uint8_t *data, uint16_t len) {
+    if (!data || len == 0) return;
+
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+
+    // Fast binary command: 8-byte packet starting with a valid command opcode
+    if (len >= 8 && is_fast_cmd_start(data[0])) {
+        process_fast_command(data);
+        mark_activity(now_ms);
+        kmbox_update_states(now_ms);
+        return;
+    }
+
+    // Bridge sync packet (rare over USB but handle gracefully)
+    if (len >= 2 && data[0] == BRIDGE_SYNC_BYTE) {
+        process_bridge_packet(data, len);
+        mark_activity(now_ms);
+        kmbox_update_states(now_ms);
+        return;
+    }
+
+    // Text command: copy to null-terminated buffer and process
+    char line[KMBOX_CMD_BUFFER_SIZE];
+    uint16_t copy_len = (len >= sizeof(line)) ? (uint16_t)(sizeof(line) - 1) : len;
+    memcpy(line, data, copy_len);
+    line[copy_len] = '\0';
+
+    // Strip trailing newline/carriage return
+    size_t text_len = copy_len;
+    while (text_len > 0 && (line[text_len - 1] == '\n' || line[text_len - 1] == '\r')) {
+        line[--text_len] = '\0';
+    }
+
+    if (text_len > 0) {
+        mark_activity(now_ms);
+        if (!handle_text_command(line, text_len, now_ms)) {
+            kmbox_process_serial_line(line, text_len, "\n", 1, now_ms);
+        }
+    }
+
+    kmbox_update_states(now_ms);
+}
+
+//--------------------------------------------------------------------+
 // Mouse Report
 //--------------------------------------------------------------------+
 
